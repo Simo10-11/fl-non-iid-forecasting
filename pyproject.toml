@@ -1,0 +1,97 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "fl-non-iid-forecasting"
+version = "1.1.6"
+description = "Federated forecasting del traffico di rete (CESNET-TimeSeries24) con Flower e PyTorch"
+license = {file = "LICENSE"}
+dependencies = [
+    "flwr[simulation]>=1.33.0",
+    "torch>=2.10.0",
+    "cesnet-tszoo>=2.2.0",
+    "scikit-learn>=1.4.0",
+    "numpy",
+    "ipython",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["."]
+
+[tool.flwr.app]
+publisher = "flwrlabs"
+fab-format-version = 1
+flwr-version-target = "1.33.0"
+
+[tool.flwr.app.components]
+serverapp = "fl_noniid_netforecast.server_app:app"
+clientapp = "fl_noniid_netforecast.client_app:app"
+
+[tool.flwr.app.config]
+#--- Dataset ---
+data-root = "./data/cesnet_dataset"
+target-feature = "n_bytes"
+training-window-size = 168
+prediction-window-size = 24
+
+# train_time_period/test_time_period: split temporale per istituzioni
+# Il 70% iniziale (train) va per intero al client di quella istituzione 
+# Il 30% finale (test) viene diviso PER ISTITUZIONE tra test globale del server e test
+# locale del client di quella istituzione
+train-time-period = 0.7
+test-time-period = 0.3
+
+# nan-threshold: parametro di cesnet_tszoo. Esclude dal pool le
+# istituzioni con più di questa frazione di valori NaN
+# 0.1 = esclude chi ha più del 10% di dati mancanti
+nan-threshold = 0.1
+
+# global-test-fraction: per OGNI istituzione, la frazione delle sue finestre di test
+# riservata al server come test set GLOBALE, isolata PRIMA di lasciare il resto come test
+# LOCALE del client di quella istituzione [0.5 = metà delle finestre di test di ciascuna
+# istituzione va al test centralizzato, l'altra metà resta locale al client].
+global-test-fraction = 0.5
+random-state = 42   #riproducibilità partizionamento
+
+# num-supernodes (federation-config, non qui sopra): in questo progetto un client = un'istituzione,
+# ed è --num-supernodes stesso a decidere QUANTE istituzioni usare in questa run: se ne sceglie
+# un sottoinsieme casuale 
+
+# --- Modello LSTM ---
+hidden-size = 100
+num-layers = 1
+dropout = 0.0
+learning-rate = 0.001
+batch-size = 16     #numero di FINESTRE concatenate per formare un mini-batch
+
+# --- Federated Learning ---
+num-server-rounds = 30
+local-epochs = 6    #epoche per round in ogni client
+fraction-train = 0.3   #percentuale selezionata tra i client disponibili per train
+fraction-evaluate = 1  #percentuale selezionata tra i client disponibili per test
+min-available-clients = 2          # numero di client minimo sul quale lavorare
+save-model = true
+
+# proximal-mu: peso del termine prossimale di FedProx. 0.0 = FedAvg puro.
+# 0.001 e' l'ottimo trovato con local-epochs=6: 
+# con poche epoche locali il drift tra client e' troppo contenuto perche' il vincolo serva; 
+#con piu' epoche il drift cresce ed e' li' che FedProx aiuta davvero
+
+proximal-mu = 0.001     #per fare FEDAVG impostare 0.0
+
+
+#PARAMETRI DI CONFIGURAZIONE FLOWER:
+#aumentare numero di num-cpus (io max:20), rallenta ma risparmio ram in esecuzione
+# override per una singola esecuzione
+#flwr run . --stream --federation-config 'num-supernodes=5 client-resources-num-cpus=6'
+
+# cambiare i valori permanenti
+#flwr federation simulation-config @none/default local-simulation \
+    #--num-supernodes 100 \
+    #--client-resources-num-cpus 6 \
+    #--client-resources-num-gpus 0.0 \
+    #--backend-name ray
+
+
+#flwr run . --stream
