@@ -2,6 +2,8 @@
 
 Previsione del traffico di rete con **federated learning**, usando [Flower](https://flower.ai) e PyTorch sul dataset [CESNET-TimeSeries24](https://github.com/koumajos/CESNET-TimeSeries24). Distribuzione **non-IID**: ogni client rappresenta un'unica istituzione reale del dataset, e riceve solo i dati di quella istituzione (mai un mix con altre). Ogni istituzione ha uno split temporale train/test (70/30, cronologico): il 70% (train) va per intero al client di quella istituzione; il 30% (test) viene diviso, istituzione per istituzione, tra un test set **globale** del server (mai visto dai client, rappresentativo di tutto il traffico) e un test **locale** per il client di quella istituzione, usato per la federated evaluation.
 
+Il modello è una LSTM bidirezionale univariata (target: `n_bytes`). La strategia di aggregazione è **FedProx** (Li et al., 2018): un termine di regolarizzazione lato client penalizza quanto ogni modello locale si allontana dai pesi globali durante il round, utile perché qui i client sono molto eterogenei tra loro. Con `proximal-mu = 0.0` il termine si annulla e il comportamento coincide con FedAvg puro.
+
 ---
 
 ## Requisiti
@@ -15,7 +17,7 @@ Previsione del traffico di rete con **federated learning**, usando [Flower](http
 ## Installazione
 
 ```bash
-git clone <url-del-repo>
+git clone https://github.com/Simo10-11/fl-non-iid-forecasting.git
 cd fl-non-iid-forecasting
 
 # crea e attiva un virtual environment
@@ -63,8 +65,8 @@ Tutti gli iperparametri stanno in `pyproject.toml`, sotto `[tool.flwr.app.config
 
 - **Dataset**: feature target, dimensione delle finestre di input/predizione, seed
 - **Split dati**: `train-time-period`/`test-time-period` (70/30 cronologico per istituzione: il 70% train va tutto al client di quella istituzione, il 30% test viene diviso per istituzione tra server e client), `global-test-fraction` (per ciascuna istituzione, frazione delle sue finestre di test riservata al server come test set globale, isolata prima di lasciare il resto come test locale del client)
-- **Modello**: dimensioni della LSTM, learning rate, batch size
-- **Federated learning**: numero di round, epoche locali per round, frazione di client per training/valutazione, minimo di client richiesti, salvataggio del modello finale
+- **Modello**: dimensioni della LSTM (bidirezionale), learning rate, batch size
+- **Federated learning**: numero di round, epoche locali per round, frazione di client per training/valutazione, minimo di client richiesti, salvataggio del modello finale, `proximal-mu` (peso del termine prossimale di **FedProx**: `0.0` equivale a FedAvg puro, un valore positivo penalizza quanto ogni client si allontana dai pesi globali durante il training locale — utile con client molto eterogenei come in questo progetto)
 
 Per un run singolo si possono sovrascrivere senza modificare il file:
 
@@ -94,7 +96,8 @@ fl-non-iid-forecasting
 ├── fl_noniid_netforecast
 │   ├── task.py          # modello LSTM, caricamento/preparazione dati, training e metriche
 │   ├── client_app.py    # ClientApp: training e valutazione locale di ogni client
-│   └── server_app.py    # ServerApp: strategia FedAvg e ciclo dei round
+│   └── server_app.py    # ServerApp: strategia FedProx (= FedAvg con proximal-mu=0.0) e ciclo dei round
 ├── pyproject.toml       # dipendenze e configurazione (dataset, modello, federated learning)
+├── LICENSE
 └── README.md
 ```
