@@ -130,6 +130,7 @@ def prepara_istituzioni_finestre(num_partitions: int, run_config: dict):
         random_state=int(run_config["random-state"]),
         transform_with="min_max_scaler",    # scaler viene fittato solo sul training set
         nan_threshold=float(run_config["nan-threshold"]),  # esclude istituzioni con troppi NaN (vedi docstring sopra)
+        fill_missing_with="forward_filler", # riempie i NaN con l'ultimo valore disponibile, 0 se primo valore della serie
         include_ts_id=False,
         include_time=False,
     )
