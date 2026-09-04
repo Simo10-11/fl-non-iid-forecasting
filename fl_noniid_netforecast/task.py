@@ -101,16 +101,20 @@ _istituzioni_e_finestre_cache: tuple | None = None  # cache in-memory (pool_vali
 
 def prepara_istituzioni_finestre(num_partitions: int, run_config: dict):
     """Apre il dataset, lo configura, e restituisce le num_partitions istituzioni assegnate ai client di questa run, e
-    le loro finestre di train/test, TENUTE SEPARATE istituzione per istituzione
+    le loro finestre di train/validation/test, TENUTE SEPARATE istituzione per istituzione
 
     num_partitions (cioè --num-supernodes) decide DIRETTAMENTE quante istituzioni usare: un
     client = un'istituzione
 
+    Split cronologico a 3 vie per istituzione (train piu' vecchio, poi validation, poi test piu'
+    recente): nan_threshold viene verificato da cesnet_tszoo INDIPENDENTEMENTE su ciascuno dei tre
+    split, quindi un'istituzione con troppi NaN anche in un solo split viene scartata da sola.
+
     Lo scaler MinMax è fittato dalla libreria SOLO sul periodo "train", quindi non vede mai
     dati da predire.
 
-    Cachato per l'intera run (train e test condividono la stessa TimeBasedConfig, quindi vanno
-    costruiti insieme una sola volta, invece che una volta per periodo come nella versione IID).
+    Cachato per l'intera run (train, validation e test condividono la stessa TimeBasedConfig,
+    quindi vanno costruiti insieme una sola volta, invece che una volta per periodo).
     """
     global _istituzioni_e_finestre_cache
     if _istituzioni_e_finestre_cache is not None:
@@ -122,6 +126,7 @@ def prepara_istituzioni_finestre(num_partitions: int, run_config: dict):
     config = TimeBasedConfig(
         ts_ids=pool,    #lista di più isitituzioni
         train_time_period=float(run_config["train-time-period"]),
+        val_time_period=float(run_config["val-time-period"]),
         test_time_period=float(run_config["test-time-period"]),
         features_to_take=[str(run_config["target-feature"])],
         sliding_window_size=int(run_config["training-window-size"]),
@@ -129,15 +134,18 @@ def prepara_istituzioni_finestre(num_partitions: int, run_config: dict):
         sliding_window_step=int(run_config["prediction-window-size"]),
         random_state=int(run_config["random-state"]),
         transform_with="min_max_scaler",    # scaler viene fittato solo sul training set
-        nan_threshold=float(run_config["nan-threshold"]),  # esclude istituzioni con troppi NaN (vedi docstring sopra)
-        fill_missing_with="forward_filler", # riempie i NaN con l'ultimo valore disponibile, 0 se primo valore della serie
+        nan_threshold=float(run_config["nan-threshold"]),  # esclude istituzioni con troppi NaN (verificato indipendentemente su train/val/test)
+        # NIENTE fill_missing_with esplicito: con 3 split attivi (train+val+test) cesnet_tszoo
+        # 2.2.0 ha un bug nell'inizializzazione dei fillers (forward_filler, mean_filler,
+        # linear_interpolation_filler - tutti e tre) che puo' dare IndexError su slice vuote.
+        # Restiamo sul riempimento a 0 di default (default_values), che non passa mai da li'.
         include_ts_id=False,
         include_time=False,
     )
     dataset.set_dataset_config_and_initialize(config, display_config_details=None)
     pool_nan_valido = sorted(dataset.dataset_config.ts_ids.tolist())  # ordine fisso: base del mapping partition_id -> institution_id
     n_escluse_nan = len(pool) - len(pool_nan_valido)
-    if n_escluse_nan > 0:   #indicazioni su quante istituzioni sono state escluse per troppi valori mancanti
+    if n_escluse_nan > 0:   #indicazioni su quante istituzioni sono state escluse per troppi valori mancanti (in un qualsiasi split)
         print(f"nan-threshold={run_config['nan-threshold']}: {n_escluse_nan} istituzioni escluse per troppi valori mancanti")
 
     if num_partitions > len(pool_nan_valido):   #se numero client > numero isituzioni disponibili (che rispttano il Nan), lancio errore
@@ -152,27 +160,36 @@ def prepara_istituzioni_finestre(num_partitions: int, run_config: dict):
         pool_candidata = sorted(rng.choice(pool_nan_valido, size=num_partitions, replace=False).tolist())
         print(f"--num-supernodes={num_partitions}: sottoinsieme scelto casualmente (seed={run_config['random-state']}) tra le {len(pool_nan_valido)} istituzioni valide per nan-threshold")
     else:   #numero client = numero isituzioni disponibili, uso tutte le istituzioni
-        pool_candidata = pool_nan_valido  
-      
-    # per ogni istituzione, concateno tutte le finestre di train e test in due array (X, Y) separati
-    train_per_istituzione, test_per_istituzione = {}, {}  # finestre per istituzione
+        pool_candidata = pool_nan_valido
+
+    # per ogni istituzione, concateno tutte le finestre di train/validation/test in array separati
+    train_per_istituzione, val_per_istituzione, test_per_istituzione = {}, {}, {}  # finestre per istituzione
     pool_valido = []  # istituzioni che risulteranno effettivamente usabili
     n_troppo_piccole = 0  # conta le istituzioni scartate per pochi dati (non ce ne saranno, hanno tutte gli stessi dati)
     for institution_id in pool_candidata:  # scorre le istituzioni scelte per questa run
         X_train, Y_train = concatena_finestre(dataset.get_train_dataloader(ts_id=institution_id))  # carica le finestre di train
+        X_val, Y_val = concatena_finestre(dataset.get_val_dataloader(ts_id=institution_id))  # carica le finestre di validation
         X_test, Y_test = concatena_finestre(dataset.get_test_dataloader(ts_id=institution_id))  # carica le finestre di test
-        if len(X_train) == 0 or len(X_test) == 0:  # istituzione senza abbastanza dati
+        if len(X_train) == 0 or len(X_val) == 0 or len(X_test) == 0:  # istituzione senza abbastanza dati in uno split
             n_troppo_piccole += 1  # segna un'istituzione scartata
             continue  # non la aggiunge al pool
         train_per_istituzione[institution_id] = (X_train, Y_train)  # salva le finestre di train
+        val_per_istituzione[institution_id] = (X_val, Y_val)  # salva le finestre di validation
         test_per_istituzione[institution_id] = (X_test, Y_test)  # salva le finestre di test
         pool_valido.append(institution_id)  # istituzione confermata valida
 
 
     print(f"Istituzioni usate in questa run (= numero di client): {len(pool_valido)}.\n")
 
-    _istituzioni_e_finestre_cache = (pool_valido, train_per_istituzione, test_per_istituzione)
+    _istituzioni_e_finestre_cache = (pool_valido, train_per_istituzione, val_per_istituzione, test_per_istituzione)
     return _istituzioni_e_finestre_cache
+
+
+def institution_id_per_partition(partition_id: int, num_partitions: int, run_config: dict) -> int:
+    """Istituzione reale (id CESNET) associata a questo partition_id - serve solo per
+    etichettare i risultati per client con qualcosa di piu' leggibile del solo indice interno."""
+    pool_valido, _, _, _ = prepara_istituzioni_finestre(num_partitions, run_config)
+    return pool_valido[partition_id]
 
 
 def dividi_in_batch(X, Y, batch_size):
@@ -181,77 +198,17 @@ def dividi_in_batch(X, Y, batch_size):
     return [(X[i:i + batch_size], Y[i:i + batch_size]) for i in range(0, len(X), batch_size)]
 
 
-_split_test_cache: tuple | None = None  # cache in-memory di split_test, costruita una sola volta
-
-
-def split_test(num_partitions: int, run_config: dict):
-    """Split non-IID a 2 livelli del pool TEST
-
-    Per ciascuna istituzione:
-    1. si isola una fetta (global-test-fraction) delle sue finestre di test per il test set
-       GLOBALE del server;
-    2. il resto resta come test LOCALE di quella sola istituzione, quindi di un solo client
-
-    Cachato per l'intera run: senza cache, ogni client che chiama load_data(split="test")
-    rifarebbe da capo lo split di TUTTE le istituzioni solo per leggere la propria fetta
-    """
-    global _split_test_cache  # dichiara che modifico la cache globale
-    if _split_test_cache is not None:  # se già calcolata in questa run
-        return _split_test_cache  # riusa il risultato salvato prima
-
-    pool_valido, _, finestre_test = prepara_istituzioni_finestre(num_partitions, run_config)  # istituzioni e finestre di test
-
-    seed = int(run_config["random-state"])  # seed fisso per riproducibilità
-    frac_globale = float(run_config["global-test-fraction"])  # frazione riservata al server
-
-    X_globale_parti, Y_globale_parti = [], []  # accumulano le fette globali
-    locale_per_istituzione = {}  # fetta locale, una per istituzione
-    for institution_id in pool_valido:  # scorre ogni istituzione della run
-        X, Y = finestre_test[institution_id]  # finestre di test di questa istituzione
-        rng = np.random.default_rng((seed, institution_id))  # seed diverso ma riproducibile per ogni istituzione
-        permutazione = rng.permutation(len(X))  # ordine casuale delle finestre
-
-        n_globale = int(len(permutazione) * frac_globale)  # quante finestre vanno al globale
-        idx_globale, idx_locale = permutazione[:n_globale], permutazione[n_globale:]  # divide indici globali e locali
-
-        X_globale_parti.append(X[idx_globale])  # aggiunge la fetta X globale
-        Y_globale_parti.append(Y[idx_globale])  # aggiunge la fetta Y globale
-        locale_per_istituzione[institution_id] = (X[idx_locale], Y[idx_locale])  # salva la fetta locale
-
-    X_globale = np.concatenate(X_globale_parti)  # unisce le fette X di tutti
-    Y_globale = np.concatenate(Y_globale_parti)  # unisce le fette Y di tutti
-    _split_test_cache = (X_globale, Y_globale, locale_per_istituzione)  # salva il risultato in cache
-    return _split_test_cache  # restituisce il risultato appena calcolato
-
-
-_test_globale_cache: list | None = None  # cache in-memory del test set globale del server, costruito una sola volta
-
-
-def load_test_globale(num_partitions: int, run_config: dict):
-    """Carica il test set globale del server: l'unione, su tutte le istituzioni, della fetta
-    isolata da ciascuna prima di lasciare il resto come test locale del client corrispondente."""
-    global _test_globale_cache
-    if _test_globale_cache is not None:
-        return _test_globale_cache
-
-    X_globale, Y_globale, _ = split_test(num_partitions, run_config)
-
-    batch_size = int(run_config["batch-size"])
-    _test_globale_cache = dividi_in_batch(X_globale, Y_globale, batch_size)
-    return _test_globale_cache
-
-
 _load_data_cache: dict[tuple[int, int, str], list] = {}  # cache in-memory dei batch già costruiti, per client e split
 
 
 def load_data(partition_id: int, num_partitions: int, run_config: dict, split: str):
     """
     Dato l'indice di un client, costruisce il suo dataset non-IID per lo split richiesto:
-    un client = un'istituzione , quindi riceve SOLO dati della propria istituzione
+    un client = un'istituzione, quindi riceve SOLO dati della propria istituzione.
 
-    - "train": TUTTE le finestre di training della sua istituzione 
-    - "test": la fetta di test LOCALE della sua istituzione, cioè quello che resta dopo aver
-      isolato la parte destinata al test set globale del server (vedi split_test).
+    split è "train", "validation" o "test": ciascuno è per intero della sola istituzione di
+    questo client (nessuna fetta riservata al server - vedi prepara_istituzioni_finestre).
+    "train" e "validation" si usano a ogni round; "test" solo nel round finale one-off.
 
     Il risultato viene cachato: si esegue una sola volta per client per l'intera durata della
     run, invece che una volta per round.
@@ -260,15 +217,12 @@ def load_data(partition_id: int, num_partitions: int, run_config: dict, split: s
     if cache_key in _load_data_cache:
         return _load_data_cache[cache_key]  # hit: nei round successivi salta subito il ricaricamento da cesnet_tszoo
 
-    # prepara_istituzioni_finestre costruisce il mapping partition_id (identificstivo client)-> institution_id e carica le finestre di train/test
-    pool_valido, train_per_istituzione, _ = prepara_istituzioni_finestre(num_partitions, run_config)
+    # prepara_istituzioni_finestre costruisce il mapping partition_id (identificstivo client)-> institution_id e carica le finestre di train/validation/test
+    pool_valido, train_per_istituzione, val_per_istituzione, test_per_istituzione = prepara_istituzioni_finestre(num_partitions, run_config)
     institution_id = pool_valido[partition_id]
 
-    if split == "train":
-        X, Y = train_per_istituzione[institution_id]
-    else:   #test
-        _, _, locale_per_istituzione = split_test(num_partitions, run_config)
-        X, Y = locale_per_istituzione[institution_id]
+    finestre_per_split = {"train": train_per_istituzione, "validation": val_per_istituzione, "test": test_per_istituzione}
+    X, Y = finestre_per_split[split][institution_id]
 
     batch_size = int(run_config["batch-size"])
     result = dividi_in_batch(X, Y, batch_size)

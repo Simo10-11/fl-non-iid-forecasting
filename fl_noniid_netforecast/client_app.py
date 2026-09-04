@@ -3,7 +3,7 @@
 from flwr.app import ArrayRecord, Context, Message, MetricRecord, RecordDict
 from flwr.clientapp import ClientApp
 
-from fl_noniid_netforecast.task import build_model, get_device, load_data, statistiche_additive
+from fl_noniid_netforecast.task import build_model, get_device, institution_id_per_partition, load_data, statistiche_additive
 from fl_noniid_netforecast.task import test as test_fn
 from fl_noniid_netforecast.task import train as train_fn
 
@@ -75,13 +75,21 @@ def train(msg: Message, context: Context):
 
 @app.evaluate()
 def evaluate(msg: Message, context: Context):
-    """Testa il modello globale (aggregato, non locale) sul test set locale della sua istituzione."""
+    """Testa il modello globale (aggregato, non locale) sullo split locale della sua istituzione.
+
+    eval-split: assente nei round normali (li manda la strategia via configure_evaluate, che non
+    lo imposta) -> default "validation", usato round dopo round per la model selection lato
+    server. Vale "test" SOLO nell'unico round finale one-off costruito a mano in server_app.py,
+    dopo che il training e' finito: e' cosi' che il test set resta isolato fino a quel momento.
+    """
     model = model_from_message(msg, context)
     device = get_device()
 
+    eval_split = msg.content["config"].get("eval-split", "validation")
+
     partition_id = context.node_config["partition-id"]
     num_partitions = context.node_config["num-partitions"]
-    test_loader = load_data(partition_id, num_partitions, context.run_config, split="test")
+    test_loader = load_data(partition_id, num_partitions, context.run_config, split=eval_split)
 
     _, _, _, _, trues, preds = test_fn(model, test_loader, device)
 
@@ -97,6 +105,10 @@ def evaluate(msg: Message, context: Context):
         "sum_y_sq": sum_y_sq,
         "num_values": num_values,
         "num-examples": sum(len(X) for X, _ in test_loader),
+        # identificano il client nel round di test finale (vedi server_app.py), dove le
+        # metriche vengono stampate anche per singolo client, non solo aggregate
+        "partition-id": partition_id,
+        "institution-id": institution_id_per_partition(partition_id, num_partitions, context.run_config),
     }
     content = RecordDict({"metrics": MetricRecord(metrics)})    #non mandoi i pesi ( non c'è ArrayRecord), ma solo le metriche per dare valutazione
     return Message(content=content, reply_to=msg)
