@@ -22,8 +22,7 @@ def get_device():
 class LSTMForecast(nn.Module):
     """LSTM per forecasting: prende in input una finestra di training e predice gli step della finestra di predizione"""
 
-    # I valori qui sotto sono solo DEFAULT della firma
-    def __init__(self, input_size, hidden_size=100, num_layers=1, dropout=0.0, output_size=1):  # costruisce l'architettura della rete
+    def __init__(self, input_size, hidden_size, num_layers, dropout, output_size):  # costruisce l'architettura della rete
         # output_size = prediction_window_size
         super().__init__()
         self.lstm = nn.LSTM(
@@ -135,9 +134,6 @@ def prepara_istituzioni_finestre(num_partitions: int, run_config: dict):
         random_state=int(run_config["random-state"]),
         transform_with="min_max_scaler",    # scaler viene fittato solo sul training set
         nan_threshold=float(run_config["nan-threshold"]),  # esclude istituzioni con troppi NaN (verificato indipendentemente su train/val/test)
-        # NIENTE fill_missing_with esplicito: con 3 split attivi (train+val+test) cesnet_tszoo
-        # 2.2.0 ha un bug nell'inizializzazione dei fillers (forward_filler, mean_filler,
-        # linear_interpolation_filler - tutti e tre) che puo' dare IndexError su slice vuote.
         # Restiamo sul riempimento a 0 di default (default_values), che non passa mai da li'.
         include_ts_id=False,
         include_time=False,
@@ -165,13 +161,11 @@ def prepara_istituzioni_finestre(num_partitions: int, run_config: dict):
     # per ogni istituzione, concateno tutte le finestre di train/validation/test in array separati
     train_per_istituzione, val_per_istituzione, test_per_istituzione = {}, {}, {}  # finestre per istituzione
     pool_valido = []  # istituzioni che risulteranno effettivamente usabili
-    n_troppo_piccole = 0  # conta le istituzioni scartate per pochi dati (non ce ne saranno, hanno tutte gli stessi dati)
     for institution_id in pool_candidata:  # scorre le istituzioni scelte per questa run
         X_train, Y_train = concatena_finestre(dataset.get_train_dataloader(ts_id=institution_id))  # carica le finestre di train
         X_val, Y_val = concatena_finestre(dataset.get_val_dataloader(ts_id=institution_id))  # carica le finestre di validation
         X_test, Y_test = concatena_finestre(dataset.get_test_dataloader(ts_id=institution_id))  # carica le finestre di test
-        if len(X_train) == 0 or len(X_val) == 0 or len(X_test) == 0:  # istituzione senza abbastanza dati in uno split
-            n_troppo_piccole += 1  # segna un'istituzione scartata
+        if len(X_train) == 0 or len(X_val) == 0 or len(X_test) == 0:  # istituzione senza abbastanza dati in uno split (non dovrebbe succedere, tutte le istituzioni condividono lo stesso periodo)
             continue  # non la aggiunge al pool
         train_per_istituzione[institution_id] = (X_train, Y_train)  # salva le finestre di train
         val_per_istituzione[institution_id] = (X_val, Y_val)  # salva le finestre di validation
@@ -207,8 +201,7 @@ def load_data(partition_id: int, num_partitions: int, run_config: dict, split: s
     un client = un'istituzione, quindi riceve SOLO dati della propria istituzione.
 
     split è "train", "validation" o "test": ciascuno è per intero della sola istituzione di
-    questo client (nessuna fetta riservata al server - vedi prepara_istituzioni_finestre).
-    "train" e "validation" si usano a ogni round; "test" solo nel round finale one-off.
+    questo client 
 
     Il risultato viene cachato: si esegue una sola volta per client per l'intera durata della
     run, invece che una volta per round.
@@ -238,8 +231,6 @@ def statistiche_additive(trues, preds):
     Servono al server per ricostruire mse/rmse/r2/mae esatti: rmse, r2 e mae non sono lineari,
     quindi mediarli, anche pesando per numero di finestre, non equivale a calcolarli sui dati
     concatenati. Nessun dato grezzo lascia il client: solo 5 numeri.
-     (esempio: due client con rmse locale 1 e 3 sullo stesso numero di finestre non danno un
-    rmse globale di 2, ma sqrt(5) ≈ 2.236).
     """
     errors = preds - trues
     sse = errors.square().sum().item()
@@ -306,7 +297,7 @@ def train_one_epoch(model, loader, criterion, optimizer, device, mu, global_para
 def train(model, train_loader, epochs, lr, device, mu=0.0):
     """Il client allena il modello locale per epoche partendo dai pesi ricevuti dal server.
 
-    mu=0.0 (default): nessun termine prossimale, comportamento identico a prima di FedProx.
+    mu=0.0 (default): nessun termine prossimale, comportamento identico a FedAVG.
     """
     model.to(device)
 

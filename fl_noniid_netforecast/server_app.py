@@ -13,22 +13,19 @@ app = ServerApp()
 
 
 def aggrega_train(records: list[RecordDict], weighting_metric_name: str) -> MetricRecord:
-    """Media pesata (per num-examples) della train_mse locale di ogni client. La MSE è additiva
-    (media di errori al quadrato), quindi qui la media pesata generica di Flower
-    (aggregate_metricrecords) è già esatta: non serve una logica custom come per l'evaluate."""
+    """Media pesata (per num-examples) della train_mse locale di ogni client. La MSE è additiva"""
     print(f" train -> {len(records)} client coinvolti")
     return aggregate_metricrecords(records, weighting_metric_name)  #aggregate_metricrecords è la funzione DI FLOWER
 
 
-def crea_valutazione_e_selezione_modello(run_config: dict):
+def valutazione_selezione_modello(run_config: dict):
     """Costruisce due funzioni che condividono uno stato interno:
 
     - aggrega_evaluate: passata a FedProx come evaluate_metrics_aggr_fn. Gira ogni round subito
-      dopo che i client hanno valutato sul proprio VALIDATION set locale (vedi client_app.py),
+      dopo che i client hanno valutato sul proprio VALIDATION set locale,
       aggrega le statistiche additive e scrive l'mse appena calcolata nello stato condiviso.
     - seleziona_modello_migliore: passata a strategy.start() come evaluate_fn. Flower la chiama
-      SEMPRE dopo aggrega_evaluate, nello stesso round, sugli stessi pesi appena aggregati (vedi
-      flwr/serverapp/strategy/strategy.py) - quindi puo' limitarsi a leggere l'mse appena scritta
+      SEMPRE dopo aggrega_evaluate, nello stesso round, quindi puo' leggere l'mse appena scritta
       invece di rivalutare nulla, e decidere se questo round e' il nuovo migliore. Il round 0
       (pesi random, nessun client ha ancora validato) si esclude da solo: a quel punto lo stato
       e' ancora "non fresco".
@@ -45,10 +42,7 @@ def crea_valutazione_e_selezione_modello(run_config: dict):
 
         Ogni client manda invece statistiche additive. Qui vengono sommate su tutti i client
         coinvolti in questo round, e le metriche finali vengono calcolate una sola volta, come
-        se il modello fosse stato valutato su tutto il set federato in un unico batch.
-
-        Riusata anche per il round di test finale one-off (vedi main()): la scrittura su `stato`
-        che fa in quel caso e' innocua, perche' a quel punto nessuno lo legge più."""
+        se il modello fosse stato valutato su tutto il set federato in un unico batch."""
         print(f" evaluate -> {len(records)} client coinvolti")
 
         total_sse = total_sum_abs_error = total_sum_y = total_sum_y_sq = 0.0
@@ -118,7 +112,7 @@ def main(grid: Grid, context: Context):
     # aggrega_evaluate valuta ogni round sul VALIDATION set federato (vedi client_app.py);
     # seleziona_modello_migliore legge quella mse (stesso round, stessi pesi - garantito da
     # Flower, vedi docstring sopra) e tiene in memoria il checkpoint a mse piu' bassa vista finora.
-    aggrega_evaluate, seleziona_modello_migliore, migliore = crea_valutazione_e_selezione_modello(context.run_config)
+    aggrega_evaluate, seleziona_modello_migliore, migliore = valutazione_selezione_modello(context.run_config)
 
     # "num-examples" (numero di finestre locali) è la chiave con cui FedAvg pesa sia
     # l'aggregazione dei pesi del modello sia quella delle metriche.
@@ -171,9 +165,7 @@ def main(grid: Grid, context: Context):
     for contenuto in contenuti_validi:
         metricrecord = next(iter(contenuto.metric_records.values()))
         # Le 5 statistiche additive di UN SOLO client, passate da sole alla stessa formula
-        # usata per l'aggregato: danno esattamente l'mse/rmse/r2/mae di quel client, senza
-        # bisogno di una formula diversa per il caso "singolo client" (Servono comunque, non
-        # medie: r2/rmse/mae non sono lineari, vedi aggrega_evaluate).
+        # usata per l'aggregato: danno esattamente l'mse/rmse/r2/mae di quel clienr
         mse, rmse, r2, mae = metriche_da_statistiche_additive(
             metricrecord["sse"], metricrecord["sum_abs_error"],
             metricrecord["sum_y"], metricrecord["sum_y_sq"], metricrecord["num_values"],

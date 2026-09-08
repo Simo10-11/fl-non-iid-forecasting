@@ -66,9 +66,6 @@ batch-size = 16     #numero di FINESTRE concatenate per formare un mini-batch
 num-server-rounds = 30
 local-epochs = 6    #epoche per round in ogni client
 fraction-train = 0.3   #percentuale selezionata tra i client disponibili per train
-# fraction-evaluate: percentuale di client che validano ogni round. La model selection (vedi
-# server_app.py) si basa sull'mse aggregata di QUESTI client: un valore <1.0 fa validare solo
-# un sottoinsieme a ogni round, rendendo il segnale su cui si sceglie il round migliore più rumoroso.
 fraction-evaluate = 1
 min-available-clients = 2          # numero di client minimo sul quale lavorare
 save-model = true
