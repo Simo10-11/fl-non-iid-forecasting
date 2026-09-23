@@ -76,7 +76,7 @@ save-model = true
 # con poche epoche locali il drift tra client e' troppo contenuto perche' il vincolo serva; 
 #con piu' epoche il drift cresce ed e' li' che FedProx aiuta davvero
 
-proximal-mu = 0.001     #per fare FEDAVG impostare 0.0
+proximal-mu = 0    #per fare FEDAVG impostare 0.0
 
 
 #PARAMETRI DI CONFIGURAZIONE FLOWER:

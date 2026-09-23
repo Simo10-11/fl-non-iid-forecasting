@@ -20,7 +20,6 @@
 | batch-size | 16 |
 | max-epochs | 100 |
 | early-stopping-patience | 10 |
-| save-model | true |
 | random-state | variabile per run (vedi tabella risultati) |
 
 ### Dati
@@ -68,7 +67,6 @@
 
 | Parametro | Valore |
 |---|---|
-| data-root | ./data/cesnet_dataset |
 | target-feature | n_bytes |
 | training-window-size | 168 |
 | prediction-window-size | 24 |
@@ -87,7 +85,6 @@
 | fraction-train | 0.3 |
 | fraction-evaluate | 1 |
 | min-available-clients | 2 |
-| save-model | true |
 | random-state | 456 |
 
 ### Risultato
@@ -98,13 +95,42 @@
 
 ## Federated Non-IID
 
+### proximal-mu=0.0 (FedAvg puro)
+
+#### Risultati per seed
+
+| Seed | Round migliore | MSE validazione | MSE test | RMSE test | R² test | MAE test |
+|---|---|---|---|---|---|---|
+| 42 | 25 | 0.00660 | 0.00515 | 0.0718 | 0.3518 | 0.0388 |
+| 123 | 29 | 0.00672 | 0.00512 | 0.0715 | 0.3560 | 0.0374 |
+| 456 | 27 | 0.00664 | 0.00518 | 0.0720 | 0.3482 | 0.0366 |
+| 789 | 29 | 0.00644 | 0.00499 | 0.0707 | 0.3716 | 0.0366 |
+| 1000 | 29 | 0.00649 | 0.00497 | 0.0705 | 0.3747 | 0.0360 |
+
+#### Riepilogo (media ± deviazione standard, 5 seed)
+
+| Metrica | Media | Dev. standard |
+|---|---|---|
+| MSE validazione | 0.006578 | 0.000113 |
+| MSE test | 0.005083 | 0.000095 |
+| RMSE test | 0.07129 | 0.00067 |
+| R² test | 0.36047 | 0.01198 |
+| MAE test | 0.03706 | 0.00110 |
+
+### proximal-mu=0.0, local-epochs=6
+
+#### Risultato
+
+| Round migliore | MSE validazione | MSE test | RMSE test | R² test | MAE test |
+|---|---|---|---|---|---|
+| 13 | 0.00663 | 0.00504 | 0.0710 | 0.3653 | 0.0355 |
+
 ### local-epochs=6, proximal-mu=0.001
 
 #### Configurazione
 
 | Parametro | Valore |
 |---|---|
-| data-root | ./data/cesnet_dataset |
 | target-feature | n_bytes |
 | training-window-size | 168 |
 | prediction-window-size | 24 |
@@ -124,7 +150,6 @@
 | fraction-evaluate | 1 |
 | min-available-clients | 2 |
 | proximal-mu | 0.001 |
-| save-model | true |
 | random-state | variabile per run (vedi tabella risultati) |
 
 #### Risultati per seed
