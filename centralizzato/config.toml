@@ -1,0 +1,44 @@
+# Configurazione CENTRALIZZATA.
+
+
+[config]
+
+#--- Dataset  ---
+# data-root: percorso RELATIVO alla cartella del progetto (quella che contiene config.toml),
+# non alla directory da cui lanci il comando: cosi' funziona uguale per chiunque cloni il repo.
+# La cartella viene creata al primo avvio se non esiste; cesnet_tszoo ci mette dentro tszoo/.
+# La cartella data/ e' in .gitignore: il dataset (~150 MB) non finisce nel repo, viene scaricato
+# automaticamente alla prima esecuzione.
+data-root = "./data"
+target-feature = "n_bytes"
+training-window-size = 168
+prediction-window-size = 24
+
+
+# qui solo concatenato invece che distribuito tra i client.
+train-time-period = 0.7
+val-time-period = 0.15
+test-time-period = 0.15
+
+nan-threshold = 0.1
+
+random-state = 42
+
+
+
+# --- Modello LSTM (identici al non-IID) ---
+hidden-size = 100
+num-layers = 1
+dropout = 0.0
+learning-rate = 0.001
+batch-size = 16     #numero di FINESTRE concatenate per formare un mini-batch
+
+# --- Training centralizzato 
+# max-epochs: tetto massimo di epoche. Di solito non viene raggiunto, ferma prima l'early stopping.
+max-epochs = 100
+
+# early-stopping-patience: epoche consecutive senza miglioramento della validation mse dopo le
+# quali il training si ferma. Il modello salvato resta comunque il MIGLIORE visto, non l'ultimo.
+early-stopping-patience = 10
+
+save-model = true
