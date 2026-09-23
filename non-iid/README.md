@@ -1,18 +1,14 @@
 # Federated Forecasting del traffico di rete (CESNET-TimeSeries24)
 
-Previsione del traffico di rete con **federated learning**, usando [Flower](https://flower.ai) e PyTorch sul dataset [CESNET-TimeSeries24](https://github.com/koumajos/CESNET-TimeSeries24). Distribuzione **non-IID**: ogni client rappresenta un'unica istituzione reale del dataset, e riceve solo i dati di quella istituzione (mai un mix con altre). Ogni istituzione ha uno split temporale train/test (70/30, cronologico): il 70% (train) va per intero al client di quella istituzione; il 30% (test) viene diviso, istituzione per istituzione, tra un test set **globale** del server (mai visto dai client, rappresentativo di tutto il traffico) e un test **locale** per il client di quella istituzione, usato per la federated evaluation.
+Previsione del traffico di rete con federated learning, usando [Flower](https://flower.ai) e PyTorch sul dataset [CESNET-TimeSeries24](https://github.com/koumajos/CESNET-TimeSeries24). Distribuzione non-IID: ogni client rappresenta un'unica istituzione reale del dataset, e riceve solo i dati di quella istituzione (mai un mix con altre). Ogni istituzione ha uno split temporale train/test (70/30, cronologico): il 70% (train) va per intero al client di quella istituzione; il 30% (test) viene diviso, istituzione per istituzione, tra un test set globale del server (mai visto dai client, rappresentativo di tutto il traffico) e un test locale per il client di quella istituzione, usato per la federated evaluation.
 
-Il modello è una LSTM bidirezionale univariata (target: `n_bytes`). La strategia di aggregazione è **FedProx** (Li et al., 2018): un termine di regolarizzazione lato client penalizza quanto ogni modello locale si allontana dai pesi globali durante il round, utile perché qui i client sono molto eterogenei tra loro. Con `proximal-mu = 0.0` il termine si annulla e il comportamento coincide con FedAvg puro.
-
----
+Il modello è una LSTM bidirezionale univariata (target: `n_bytes`). La strategia di aggregazione è FedProx (Li et al., 2018): un termine di regolarizzazione lato client penalizza quanto ogni modello locale si allontana dai pesi globali durante il round, utile perché qui i client sono molto eterogenei tra loro. Con `proximal-mu = 0.0` il termine si annulla e il comportamento coincide con FedAvg puro.
 
 ## Requisiti
 
 - Python 3.10+
 - Dipendenze principali (vedi `pyproject.toml`): `flwr[simulation]`, `torch`, `cesnet-tszoo`, `scikit-learn`, `numpy`
 - ~150 MB liberi su disco: alla prima esecuzione `cesnet-tszoo` scarica automaticamente il dataset
-
----
 
 ## Installazione
 
@@ -27,8 +23,6 @@ source flwr-env/bin/activate      # Windows: flwr-env\Scripts\activate
 # installa il progetto e le sue dipendenze
 pip install -e .
 ```
-
----
 
 ## Esecuzione
 
@@ -57,24 +51,20 @@ flwr federation simulation-config @none/default local-simulation \
     --client-resources-num-gpus 0.5
 ```
 
----
-
 ## Configurazione
 
 Tutti gli iperparametri stanno in `pyproject.toml`, sotto `[tool.flwr.app.config]`:
 
-- **Dataset**: feature target, dimensione delle finestre di input/predizione, seed
-- **Split dati**: `train-time-period`/`test-time-period` (70/30 cronologico per istituzione: il 70% train va tutto al client di quella istituzione, il 30% test viene diviso per istituzione tra server e client), `global-test-fraction` (per ciascuna istituzione, frazione delle sue finestre di test riservata al server come test set globale, isolata prima di lasciare il resto come test locale del client)
-- **Modello**: dimensioni della LSTM (bidirezionale), learning rate, batch size
-- **Federated learning**: numero di round, epoche locali per round, frazione di client per training/valutazione, minimo di client richiesti, salvataggio del modello finale, `proximal-mu` (peso del termine prossimale di **FedProx**: `0.0` equivale a FedAvg puro, un valore positivo penalizza quanto ogni client si allontana dai pesi globali durante il training locale — utile con client molto eterogenei come in questo progetto)
+- Dataset: feature target, dimensione delle finestre di input/predizione, seed
+- Split dati: `train-time-period`/`test-time-period` (70/30 cronologico per istituzione: il 70% train va tutto al client di quella istituzione, il 30% test viene diviso per istituzione tra server e client), `global-test-fraction` (per ciascuna istituzione, frazione delle sue finestre di test riservata al server come test set globale, isolata prima di lasciare il resto come test locale del client)
+- Modello: dimensioni della LSTM (bidirezionale), learning rate, batch size
+- Federated learning: numero di round, epoche locali per round, frazione di client per training/valutazione, minimo di client richiesti, salvataggio del modello finale, `proximal-mu` (peso del termine prossimale di FedProx: `0.0` equivale a FedAvg puro, un valore positivo penalizza quanto ogni client si allontana dai pesi globali durante il training locale, utile con client molto eterogenei come in questo progetto)
 
 Per un run singolo si possono sovrascrivere senza modificare il file:
 
 ```bash
 flwr run . --stream --run-config 'num-server-rounds=20 learning-rate=0.005'
 ```
-
----
 
 ## Output atteso
 
@@ -83,11 +73,9 @@ Durante l'esecuzione vengono stampati:
 - il numero di istituzioni effettivamente usate in questa run (= `--num-supernodes`) e la dimensione del test set globale del server, una sola volta a inizio run
 - un log per ogni fase di ogni round (`train -> N client coinvolti`, `evaluate -> N client coinvolti`)
 - le metriche aggregate di training (`train_mse`) e di valutazione federata (`mse`, `rmse`, `r2`, `mae`) sui client
-- le metriche di **global evaluation** (`mse`, `rmse`, `r2`, `mae`) calcolate dal server sul proprio test set globale, prima del round 1 e dopo ogni round
+- le metriche di global evaluation (`mse`, `rmse`, `r2`, `mae`) calcolate dal server sul proprio test set globale, prima del round 1 e dopo ogni round
 
 Se `save-model = true` (default), a fine run il modello globale finale viene salvato come `final_model.pt` nella cartella del progetto.
-
----
 
 ## Struttura del progetto
 
