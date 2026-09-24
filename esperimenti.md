@@ -81,7 +81,7 @@
 | learning-rate | 0.001 |
 | batch-size | 16 |
 | num-server-rounds | 30 |
-| local-epochs | 3 |
+| local-epochs | 6 |
 | fraction-train | 0.3 |
 | fraction-evaluate | 1 |
 | min-available-clients | 2 |
@@ -97,25 +97,49 @@
 
 ### proximal-mu=0.0, local-epochs=6
 
+#### Configurazione
+
+| Parametro | Valore |
+|---|---|
+| target-feature | n_bytes |
+| training-window-size | 168 |
+| prediction-window-size | 24 |
+| train-time-period | 0.7 |
+| val-time-period | 0.15 |
+| test-time-period | 0.15 |
+| nan-threshold | 0.1 |
+| num-supernodes (client / istituzioni) | 275 |
+| hidden-size | 100 |
+| num-layers | 1 |
+| dropout | 0.0 |
+| learning-rate | 0.001 |
+| batch-size | 16 |
+| num-server-rounds | 30 |
+| local-epochs | 6 |
+| fraction-train | 0.3 |
+| fraction-evaluate | 1 |
+| min-available-clients | 2 |
+| proximal-mu | 0 |
+| random-state | variabile per run (vedi tabella risultati) |
+
 #### Risultati per seed
 
-| Seed | Round migliore | MSE validazione | MSE test | RMSE test | R² test | MAE test |
-|---|---|---|---|---|---|---|
-| 42 | 28 | 0.00503 | 0.00460 | 0.0678 | 0.4865 | 0.0342 |
-| 123 | 24 | 0.00603 | 0.00511 | 0.0715 | 0.4146 | 0.0358 |
-| 456 | 29 | 0.00519 | 0.00430 | 0.0656 | 0.5073 | 0.0350 |
-| 789 | 30 | 0.00561 | 0.00534 | 0.0731 | 0.3600 | 0.0360 |
-| 1000 | 29 | 0.00545 | 0.00559 | 0.0748 | 0.3857 | 0.0368 |
+| Seed | Round migliore | MSE | RMSE | R² | MAE |
+|---|---|---|---|---|---|
+| 42 | 17 | 0.004866 | 0.069758 | 0.387722 | 0.034564 |
+| 123 | 15 | 0.004917 | 0.070123 | 0.381296 | 0.035041 |
+| 456 | 12 | 0.005062 | 0.071151 | 0.363020 | 0.035166 |
+| 789 | 14 | 0.004903 | 0.070018 | 0.383134 | 0.034684 |
+| 1000 | 13 | 0.005009 | 0.070774 | 0.369748 | 0.034779 |
 
 #### Riepilogo (media ± deviazione standard, 5 seed)
 
 | Metrica | Media | Dev. standard |
 |---|---|---|
-| MSE validazione | 0.005462 | 0.000389 |
-| MSE test | 0.004988 | 0.000531 |
-| RMSE test | 0.07055 | 0.00378 |
-| R² test | 0.43083 | 0.06378 |
-| MAE test | 0.03555 | 0.00099 |
+| MSE | 0.004951 | 0.000081 |
+| RMSE | 0.070365 | 0.000582 |
+| R² | 0.376984 | 0.010235 |
+| MAE | 0.034847 | 0.000250 |
 
 ### local-epochs=6, proximal-mu=0.001
 
